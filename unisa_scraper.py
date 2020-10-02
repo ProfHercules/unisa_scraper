@@ -13,9 +13,14 @@ all_qual_link = "/sites/corporate/default/Register-to-study-through-Unisa/Underg
 
 class UnisaScraper(object):
     def __init__(self, headless: bool = True):
+        GOOGLE_CHROME_PATH = '/app/.apt/usr/bin/google_chrome'
+        CHROMEDRIVER_PATH = '/app/.chromedriver/bin/chromedriver'
         opts = Options()
+        opts.add_argument('--disable-gpu')
+        opts.add_argument('--no-sandbox')
+        opts.binary_location = GOOGLE_CHROME_PATH
         opts.headless = headless
-        self.driver = webdriver.Chrome("./chromedriver", options=opts)
+        self.driver = webdriver.Chrome(execution_path=CHROMEDRIVER_PATH, options=opts)
 
     def __del__(self):
         self.driver.quit()
