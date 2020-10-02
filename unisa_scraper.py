@@ -31,16 +31,12 @@ class UnisaScraper(object):
         qualifications = []
         q_links = self.get_all_qualification_links()
 
-        threads = []
         q_count = 1
-        with ThreadPoolExecutor(max_workers=20) as executor:
-            for link in q_links:
-                print(f"Getting qualification #{q_count}")
-                threads.append(executor.submit(self.get_qualification, self.driver, link))
-                q_count += 1
-
-            for task in as_completed(threads):
-                qualifications.append(task.result())
+        for link in q_links:
+            print(f"Getting qualification #{q_count}")
+            qualifications.append(self.get_qualification(self.driver, link))
+            print(f"Done!")
+            q_count += 1
 
         return qualifications
 
