@@ -1,3 +1,4 @@
+import os
 import pymongo
 from pymongo.errors import DuplicateKeyError, BulkWriteError
 
@@ -5,7 +6,9 @@ from unisa_scraper import UnisaScraper
 from models import Qualification, Module
 
 print("Connecting to remote db...")
-client = pymongo.MongoClient("mongodb+srv://python_unisa_db:CJM5NvjFfFxvjz6d@unisadb.mctod.mongodb.net/unisaDb?retryWrites=true&w=majority")
+username = os.environ.get("username")
+password = os.environ.get("password")
+client = pymongo.MongoClient(f"mongodb+srv://{username}:{password}@unisadb.mctod.mongodb.net/unisaDb?retryWrites=true&w=majority")
 print("Connected!")
 db = client.unisa_database
 
