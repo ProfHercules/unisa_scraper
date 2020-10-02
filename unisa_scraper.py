@@ -105,9 +105,18 @@ class UnisaScraper(object):
         module_links = self.get_module_links(dvr)
 
         mods: [Module] = []
+        m_cnt = 1
+        skips = 0
         for module_link in module_links:
-            module = self.get_module(dvr, module_link)
-            mods.append(module)
+            print(f"Getting module #{m_cnt}")
+            try:
+                module = self.get_module(dvr, module_link)
+                mods.append(module)
+            except ValueError:
+                print("ValueError! Skipping...")
+                skips += 1
+            m_cnt += 1
+        print(f"Got {m_cnt - 1} modules, skipped {skips} modules")
 
         return Qualification(
             url=url,
