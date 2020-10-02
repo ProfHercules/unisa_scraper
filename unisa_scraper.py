@@ -1,8 +1,10 @@
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import requests
 from bs4 import BeautifulSoup
 
 from selenium import webdriver
-import os
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.chrome.options import Options
 
@@ -28,12 +30,17 @@ class UnisaScraper(object):
     def get_qualifications(self) -> [Qualification]:
         qualifications = []
         q_links = self.get_all_qualification_links()
+
+        threads = []
         q_count = 1
-        for link in q_links:
-            print(f"Getting qualification #{q_count}")
-            qualifications.append(self.get_qualification(self.driver, link))
-            print(f"Done!")
-            q_count += 1
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            for link in q_links:
+                print(f"Getting qualification #{q_count}")
+                threads.append(executor.submit(self.get_qualification, self.driver, link))
+                q_count += 1
+
+            for task in as_completed(threads):
+                qualifications.append(task.result())
 
         return qualifications
 
