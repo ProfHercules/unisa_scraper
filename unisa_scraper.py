@@ -1,12 +1,10 @@
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from bs4 import BeautifulSoup
-
 from selenium import webdriver
 from selenium.webdriver.chrome.webdriver import WebDriver
-from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import NoSuchElementException
 
 from models import Qualification, Module
 
@@ -15,14 +13,15 @@ all_qual_link = "/sites/corporate/default/Register-to-study-through-Unisa/Underg
 
 
 class UnisaScraper(object):
-    def __init__(self, headless: bool = True):
+    def __init__(self):
         chrome_options = webdriver.ChromeOptions()
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--no-sandbox")
 
         chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN")
-        self.driver = webdriver.Chrome(executable_path=os.environ.get("CHROMEDRIVER_PATH"), chrome_options=chrome_options)
+        self.driver = webdriver.Chrome(executable_path=os.environ.get("CHROMEDRIVER_PATH"),
+                                       chrome_options=chrome_options)
 
     def __del__(self):
         self.driver.quit()
@@ -32,11 +31,18 @@ class UnisaScraper(object):
         q_links = self.get_all_qualification_links()
 
         q_count = 1
+        skips = 0
         for link in q_links:
             print(f"Getting qualification #{q_count}")
-            qualifications.append(self.get_qualification(self.driver, link))
-            print(f"Done!")
+            try:
+                q = self.get_qualification(self.driver, link)
+                qualifications.append(q)
+            except NoSuchElementException:
+                skips += 1
+                print(f"NoSuchElementException! Skipping {link}")
+
             q_count += 1
+        print(f"Done! Processed {q_count - 1} links. Skipped {skips}")
 
         return qualifications
 
