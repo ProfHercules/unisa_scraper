@@ -18,7 +18,7 @@ qualification_collection = db.qualifications
 # qualification_collection.create_index([('url', pymongo.ASCENDING)], unique=True)
 
 print("Scraping Unisa website ...")
-scraper = UnisaScraper(headless=True)
+scraper = UnisaScraper()
 qualifications: [Qualification] = scraper.get_qualifications()
 
 for qualification in qualifications:
