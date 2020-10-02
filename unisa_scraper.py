@@ -23,9 +23,12 @@ class UnisaScraper(object):
     def get_qualifications(self) -> [Qualification]:
         qualifications = []
         q_links = self.get_all_qualification_links()
+        q_count = 1
         for link in q_links:
+            print(f"Getting qualification #{q_count}")
             qualifications.append(self.get_qualification(self.driver, link))
-            break
+            print(f"Done!")
+            q_count += 1
 
         return qualifications
 
