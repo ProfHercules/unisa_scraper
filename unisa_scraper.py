@@ -12,7 +12,6 @@ from models import Qualification, Module
 
 # constants
 host = "https://www.unisa.ac.za"
-max_workers = 7
 
 
 class UnisaScraper(object):
@@ -42,6 +41,9 @@ class UnisaScraper(object):
         futures = []
 
         q_count = 1
+
+        max_workers = min(32, os.cpu_count() + 4)
+        print(f"Starting ThreadPoolExecutor with max_workers={max_workers}")
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for link in qualification_links:
