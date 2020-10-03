@@ -21,7 +21,7 @@ class UnisaScraper(object):
         self.chrome_options.add_argument("--headless")
         self.chrome_options.add_argument("--disable-dev-shm-usage")
         self.chrome_options.add_argument("--no-sandbox")
-        self.chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN")
+        # self.chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN")
         self.drivers: [WebDriver] = []
 
         self.issues = []
@@ -31,8 +31,7 @@ class UnisaScraper(object):
             driver.quit()
 
     def get_driver(self) -> WebDriver:
-        exec_path = os.environ.get("CHROMEDRIVER_PATH")
-        driver = webdriver.Chrome(executable_path=exec_path, chrome_options=self.chrome_options)
+        driver = webdriver.Chrome("./chromedriver", chrome_options=self.chrome_options)
         self.drivers.append(driver)
         return driver
 
