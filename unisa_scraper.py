@@ -41,12 +41,14 @@ class UnisaScraper(object):
         futures = []
 
         q_count = 1
+        scheduled = 1
 
         max_workers = min(32, os.cpu_count() + 4)
         print(f"Starting ThreadPoolExecutor with max_workers={max_workers}")
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for link in qualification_links:
+                print(f"Scheduling future #{scheduled}")
                 future = executor.submit(self.get_qualification, link)
                 futures.append(future)
 
