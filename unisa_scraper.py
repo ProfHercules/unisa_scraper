@@ -153,7 +153,7 @@ class UnisaScraper(object):
             m = self.get_module(driver, link)
             if m is not None:
                 mods.append(m)
-                # print(f"Parsed: {m.code}")
+                print(f"Parsed: {m.code}")
             m_cnt += 1
 
         return mods
