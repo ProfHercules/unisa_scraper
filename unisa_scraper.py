@@ -1,4 +1,4 @@
-import os
+from concurrent.futures import ThreadPoolExecutor, wait
 
 import requests
 from bs4 import BeautifulSoup
@@ -8,47 +8,57 @@ from selenium.common.exceptions import NoSuchElementException
 
 from models import Qualification, Module
 
+# constants
 host = "https://www.unisa.ac.za"
-all_qual_link = "/sites/corporate/default/Register-to-study-through-Unisa/Undergraduate-&-honours-qualifications/Find-your-qualification-&-choose-your-modules/All-qualifications/"
+max_workers = 8
 
 
 class UnisaScraper(object):
     def __init__(self):
-        chrome_options = webdriver.ChromeOptions()
-        chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--no-sandbox")
+        self.chrome_options = webdriver.ChromeOptions()
+        self.chrome_options.headless = True
+        self.drivers: [WebDriver] = []
 
-        chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN")
-        self.driver = webdriver.Chrome(executable_path=os.environ.get("CHROMEDRIVER_PATH"),
-                                       chrome_options=chrome_options)
+        self.issues = []
 
     def __del__(self):
-        self.driver.quit()
+        for driver in self.drivers:
+            driver.quit()
 
-    def get_qualifications(self) -> [Qualification]:
-        qualifications = []
-        q_links = self.get_all_qualification_links()
+    def get_driver(self) -> WebDriver:
+        driver = webdriver.Chrome("./chromedriver", options=self.chrome_options)
+        self.drivers.append(driver)
+        return driver
+
+    def get_qualifications(self, base_link: str) -> [Qualification]:
+        qualification_links = self.get_all_qualification_links(base_link)
+        futures = []
 
         q_count = 1
-        skips = 0
-        for link in q_links:
-            print(f"Getting qualification #{q_count}")
-            try:
-                q = self.get_qualification(self.driver, link)
-                qualifications.append(q)
-            except NoSuchElementException:
-                skips += 1
-                print(f"NoSuchElementException! Skipping {link}")
 
-            q_count += 1
-        print(f"Done! Processed {q_count - 1} links. Skipped {skips}")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for link in qualification_links:
+                print(f"Getting qualification #{q_count}")
+                future = executor.submit(self.get_qualification, link)
+                futures.append(future)
+                q_count += 1
 
+        print(f"Done! Processed {q_count - 1} links")
+
+        wait(futures)
+
+        qualifications = []
+        for future in futures:
+            q: Qualification = future.result()
+            print(f"Parsed: {q.code}")
+            qualifications.append(future.result())
+
+        print("Issues:", len(self.issues))
         return qualifications
 
     @staticmethod
-    def get_all_qualification_links() -> [str]:
-        raw_list_page = requests.get(f"{host}{all_qual_link}")
+    def get_all_qualification_links(link: str) -> [str]:
+        raw_list_page = requests.get(f"{host}{link}")
         parsed_list_html = BeautifulSoup(raw_list_page.content, 'html.parser')
 
         maybe_qual_links = parsed_list_html.find_all('a')
@@ -57,17 +67,18 @@ class UnisaScraper(object):
 
         for q_link in maybe_qual_links:
             href = q_link.get("href")
-            if href is not None and href[0:161] == all_qual_link:
+            if href is not None and href[0:161] == link:
                 q_links.append(f"{host}{href}")
 
-        return q_links
+        return q_links[2:3]
 
-    def get_qualification(self, dvr: WebDriver, url: str) -> Qualification:
-        dvr.get(url)
-        title_end = dvr.title.rfind("(")
-        name = dvr.title[0:title_end]
+    def get_qualification(self, url: str) -> Qualification:
+        driver = self.get_driver()
+        driver.get(url)
+        title_end = driver.title.rfind("(")
+        name = driver.title[0:title_end]
 
-        info_table = dvr.find_element_by_class_name("table").find_element_by_tag_name("tbody")
+        info_table = driver.find_element_by_class_name("table").find_element_by_tag_name("tbody")
         rows = info_table.find_elements_by_tag_name("tr")
 
         stream: str = ""
@@ -80,43 +91,23 @@ class UnisaScraper(object):
 
         for row in rows:
             data = row.find_elements_by_tag_name("td")
-
             if data[0].text == "Qualification stream:":
                 stream = data[1].text
-
-            if data[0].text == "Qualification code:":
+            elif data[0].text == "Qualification code:":
                 code = data[1].text
-
-            if data[0].text == "NQF level:":
+            elif data[0].text == "NQF level:":
                 nqf_lvl = int(data[1].text)
-
-            if data[0].text == "Total credits:":
+            elif data[0].text == "Total credits:":
                 total_credits = int(data[1].text)
-
-            if data[0].text == "SAQA ID:":
+            elif data[0].text == "SAQA ID:":
                 saqa_id = data[1].text
-
-            if data[0].text == "APS/AS:":
+            elif data[0].text == "APS/AS:":
                 aps_as = int(data[1].text)
-
-            if "Purpose statement:" in data[0].text:
+            elif "Purpose statement:" in data[0].text:
                 purpose = data[0].text
 
-        module_links = self.get_module_links(dvr)
-
-        mods: [Module] = []
-        m_cnt = 1
-        skips = 0
-        for module_link in module_links:
-            print(f"Getting module #{m_cnt}")
-            try:
-                module = self.get_module(dvr, module_link)
-                mods.append(module)
-            except ValueError:
-                print("ValueError! Skipping...")
-                skips += 1
-            m_cnt += 1
-        print(f"Got {m_cnt - 1} modules, skipped {skips} modules")
+        module_links = self.get_module_links(driver)
+        mods = self.get_modules(module_links)
 
         return Qualification(
             url=url,
@@ -131,8 +122,27 @@ class UnisaScraper(object):
             modules=mods,
         )
 
-    @staticmethod
-    def get_module_links(dvr: WebDriver) -> [str]:
+    def get_modules(self, links: [str]) -> [Module]:
+        mods: [Module] = []
+        m_cnt = 1
+        skips = 0
+        futures = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for link in links:
+                future = executor.submit(self.get_module, link)
+                futures.append(future)
+                m_cnt += 1
+
+        wait(futures)
+
+        for future in futures:
+            m: Module = future.result()
+            print(f"Parsed: {m.code}")
+            mods.append(m)
+
+        return mods
+
+    def get_module_links(self, dvr: WebDriver) -> [str]:
         links = []
         tables = dvr.find_elements_by_class_name("table-responsive")
         for table in tables:
@@ -140,17 +150,21 @@ class UnisaScraper(object):
 
             for row in rows:
                 columns = row.find_elements_by_tag_name("td")
-                if len(columns) > 0 and columns[0].text[0:5] != "Group":
-                    url = columns[0].find_element_by_tag_name("a").get_property("href")
-                    links.append(url)
+                if len(columns) > 0 and columns[0].text[0:5] != "Group" and len(columns[0].text) > 6:
+                    try:
+                        url = columns[0].find_element_by_tag_name("a").get_property("href")
+                        links.append(url)
+                    except NoSuchElementException as e:
+                        self.issues.append(e)
+
         return links
 
-    @staticmethod
-    def get_module(dvr: WebDriver, url: str) -> Module:
-        dvr.get(url)
-        name, code = dvr.title.split(" - ", maxsplit=2)
+    def get_module(self, url: str) -> Module:
+        driver = self.get_driver()
+        driver.get(url)
+        name, code = driver.title.split(" - ", maxsplit=2)
 
-        info_table = dvr.find_element_by_class_name("table").find_element_by_tag_name("tbody")
+        info_table = driver.find_element_by_class_name("table").find_element_by_tag_name("tbody")
         rows = info_table.find_elements_by_tag_name("tr")
         basic_info = rows[0].find_elements_by_tag_name("td")
         levels = basic_info[0].text.split(",")
