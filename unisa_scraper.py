@@ -51,6 +51,7 @@ class UnisaScraper(object):
                 print(f"Scheduling future #{scheduled}")
                 future = executor.submit(self.get_qualification, link)
                 futures.append(future)
+                scheduled += 1
 
             qualifications = []
             for future in as_completed(futures):
