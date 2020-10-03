@@ -1,4 +1,5 @@
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import os
 import pprint
 
 import requests
@@ -11,13 +12,17 @@ from models import Qualification, Module
 
 # constants
 host = "https://www.unisa.ac.za"
-max_workers = 8
+max_workers = 7
 
 
 class UnisaScraper(object):
     def __init__(self):
         self.chrome_options = webdriver.ChromeOptions()
         self.chrome_options.headless = True
+        self.chrome_options.add_argument("--headless")
+        self.chrome_options.add_argument("--disable-dev-shm-usage")
+        self.chrome_options.add_argument("--no-sandbox")
+        self.chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN")
         self.drivers: [WebDriver] = []
 
         self.issues = []
@@ -27,7 +32,8 @@ class UnisaScraper(object):
             driver.quit()
 
     def get_driver(self) -> WebDriver:
-        driver = webdriver.Chrome("./chromedriver", options=self.chrome_options)
+        exec_path = os.environ.get("CHROMEDRIVER_PATH")
+        driver = webdriver.Chrome(executable_path=exec_path, chrome_options=self.chrome_options)
         self.drivers.append(driver)
         return driver
 
@@ -39,24 +45,22 @@ class UnisaScraper(object):
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for link in qualification_links:
-                print(f"Getting qualification #{q_count}")
                 future = executor.submit(self.get_qualification, link)
                 futures.append(future)
+
+            qualifications = []
+            for future in as_completed(futures):
+                q: Qualification = future.result()
+                progress = round(float(q_count) / float(len(qualification_links)) * 100.0, 1)
+                print(f"Parsed ({q_count}/{len(qualification_links)} ~ {progress}%): {q.code}")
                 q_count += 1
+                qualifications.append(future.result())
 
-        wait(futures)
-
-        qualifications = []
-        for future in futures:
-            q: Qualification = future.result()
-            print(f"Parsed: {q.code}")
-            qualifications.append(future.result())
-
-        print(f"Done! Processed {q_count - 1} links")
-        if len(self.issues) > 0:
-            print("Issues:", len(self.issues))
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(self.issues)
+            print(f"Done! Processed {q_count - 1} links")
+            if len(self.issues) > 0:
+                print("Issues:", len(self.issues))
+                pp = pprint.PrettyPrinter(indent=4)
+                pp.pprint(self.issues)
         return qualifications
 
     @staticmethod
@@ -73,7 +77,7 @@ class UnisaScraper(object):
             if href is not None and href[0:161] == link:
                 q_links.append(f"{host}{href}")
 
-        return q_links[:10]
+        return q_links
 
     def get_module_links(self, dvr: WebDriver) -> [str]:
         links = []
@@ -149,7 +153,7 @@ class UnisaScraper(object):
             m = self.get_module(driver, link)
             if m is not None:
                 mods.append(m)
-                print(f"Parsed: {m.code}")
+                # print(f"Parsed: {m.code}")
             m_cnt += 1
 
         return mods
