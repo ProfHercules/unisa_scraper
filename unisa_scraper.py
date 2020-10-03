@@ -107,7 +107,7 @@ class UnisaScraper(object):
                 purpose = data[0].text
 
         module_links = self.get_module_links(driver)
-        mods = self.get_modules(module_links)
+        mods = self.get_modules(driver, module_links)
 
         return Qualification(
             url=url,
@@ -122,23 +122,14 @@ class UnisaScraper(object):
             modules=mods,
         )
 
-    def get_modules(self, links: [str]) -> [Module]:
+    def get_modules(self, driver: WebDriver, links: [str]) -> [Module]:
         mods: [Module] = []
         m_cnt = 1
-        skips = 0
-        futures = []
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for link in links:
-                future = executor.submit(self.get_module, link)
-                futures.append(future)
-                m_cnt += 1
-
-        wait(futures)
-
-        for future in futures:
-            m: Module = future.result()
-            print(f"Parsed: {m.code}")
+        for link in links:
+            m = self.get_module(driver, link)
             mods.append(m)
+            print(f"Parsed: {m.code}")
+            m_cnt += 1
 
         return mods
 
@@ -159,8 +150,8 @@ class UnisaScraper(object):
 
         return links
 
-    def get_module(self, url: str) -> Module:
-        driver = self.get_driver()
+    @staticmethod
+    def get_module(driver: WebDriver, url: str) -> Module:
         driver.get(url)
         name, code = driver.title.split(" - ", maxsplit=2)
 
