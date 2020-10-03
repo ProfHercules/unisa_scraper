@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, wait
+import pprint
 
 import requests
 from bs4 import BeautifulSoup
@@ -43,8 +44,6 @@ class UnisaScraper(object):
                 futures.append(future)
                 q_count += 1
 
-        print(f"Done! Processed {q_count - 1} links")
-
         wait(futures)
 
         qualifications = []
@@ -53,7 +52,11 @@ class UnisaScraper(object):
             print(f"Parsed: {q.code}")
             qualifications.append(future.result())
 
-        print("Issues:", len(self.issues))
+        print(f"Done! Processed {q_count - 1} links")
+        if len(self.issues) > 0:
+            print("Issues:", len(self.issues))
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(self.issues)
         return qualifications
 
     @staticmethod
@@ -70,7 +73,7 @@ class UnisaScraper(object):
             if href is not None and href[0:161] == link:
                 q_links.append(f"{host}{href}")
 
-        return q_links[2:3]
+        return q_links[:10]
 
     def get_qualification(self, url: str) -> Qualification:
         driver = self.get_driver()
@@ -127,8 +130,9 @@ class UnisaScraper(object):
         m_cnt = 1
         for link in links:
             m = self.get_module(driver, link)
-            mods.append(m)
-            print(f"Parsed: {m.code}")
+            if m is not None:
+                mods.append(m)
+                print(f"Parsed: {m.code}")
             m_cnt += 1
 
         return mods
@@ -150,27 +154,28 @@ class UnisaScraper(object):
 
         return links
 
-    @staticmethod
-    def get_module(driver: WebDriver, url: str) -> Module:
+    def get_module(self, driver: WebDriver, url: str) -> Module:
         driver.get(url)
-        name, code = driver.title.split(" - ", maxsplit=2)
+        try:
+            name, code = driver.title.split(" - ", maxsplit=2)
+            info_table = driver.find_element_by_class_name("table").find_element_by_tag_name("tbody")
+            rows = info_table.find_elements_by_tag_name("tr")
+            basic_info = rows[0].find_elements_by_tag_name("td")
+            levels = basic_info[0].text.split(",")
+            duration = basic_info[1].text
+            nqf_lvl = int(basic_info[2].text[-1:])
+            creds = int(basic_info[3].text.split(": ")[1])
+            purpose: str = rows[2].find_element_by_tag_name("td").text.replace("Purpose: ", "")
 
-        info_table = driver.find_element_by_class_name("table").find_element_by_tag_name("tbody")
-        rows = info_table.find_elements_by_tag_name("tr")
-        basic_info = rows[0].find_elements_by_tag_name("td")
-        levels = basic_info[0].text.split(",")
-        duration = basic_info[1].text
-        nqf_lvl = int(basic_info[2].text[-1:])
-        creds = int(basic_info[3].text.split(": ")[1])
-        purpose: str = rows[2].find_element_by_tag_name("td").text.replace("Purpose: ", "")
-
-        return Module(
-            url=url,
-            name=name,
-            code=code,
-            levels=levels,
-            duration=duration,
-            nqf_level=nqf_lvl,
-            credits=creds,
-            purpose=purpose,
-        )
+            return Module(
+                url=url,
+                name=name,
+                code=code,
+                levels=levels,
+                duration=duration,
+                nqf_level=nqf_lvl,
+                credits=creds,
+                purpose=purpose,
+            )
+        except ValueError or IndexError:
+            self.issues.append(f"Error with {url}")
