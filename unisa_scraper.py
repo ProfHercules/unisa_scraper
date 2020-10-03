@@ -75,6 +75,23 @@ class UnisaScraper(object):
 
         return q_links[:10]
 
+    def get_module_links(self, dvr: WebDriver) -> [str]:
+        links = []
+        tables = dvr.find_elements_by_class_name("table-responsive")
+        for table in tables:
+            rows = table.find_elements_by_tag_name("tr")
+
+            for row in rows:
+                columns = row.find_elements_by_tag_name("td")
+                if len(columns) > 0 and columns[0].text[0:5] != "Group" and len(columns[0].text) > 6:
+                    try:
+                        url = columns[0].find_element_by_tag_name("a").get_property("href")
+                        links.append(url)
+                    except NoSuchElementException as e:
+                        self.issues.append(e)
+
+        return links
+
     def get_qualification(self, url: str) -> Qualification:
         driver = self.get_driver()
         driver.get(url)
@@ -136,23 +153,6 @@ class UnisaScraper(object):
             m_cnt += 1
 
         return mods
-
-    def get_module_links(self, dvr: WebDriver) -> [str]:
-        links = []
-        tables = dvr.find_elements_by_class_name("table-responsive")
-        for table in tables:
-            rows = table.find_elements_by_tag_name("tr")
-
-            for row in rows:
-                columns = row.find_elements_by_tag_name("td")
-                if len(columns) > 0 and columns[0].text[0:5] != "Group" and len(columns[0].text) > 6:
-                    try:
-                        url = columns[0].find_element_by_tag_name("a").get_property("href")
-                        links.append(url)
-                    except NoSuchElementException as e:
-                        self.issues.append(e)
-
-        return links
 
     def get_module(self, driver: WebDriver, url: str) -> Module:
         driver.get(url)
