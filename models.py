@@ -12,6 +12,10 @@ class Module:
     credits: int
     purpose: str
 
+    def matches(self, query: str) -> bool:
+        q_str = f"{self.name}{self.code}{self.duration}{self.purpose}"
+        return q_str.find(query) != -1
+
     def to_dict(self) -> dict:
         return {
             "url": self.url,

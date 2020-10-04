@@ -95,8 +95,8 @@ class UnisaScraper(object):
                     try:
                         url = columns[0].find_element_by_tag_name("a").get_property("href")
                         links.append(url)
-                    except NoSuchElementException as e:
-                        self.issues.append(e)
+                    except NoSuchElementException:
+                        self.issues.append(dvr.title)
 
         return links
 
@@ -136,6 +136,8 @@ class UnisaScraper(object):
 
         module_links = self.get_module_links(driver)
         mods = self.get_modules(driver, module_links)
+
+        driver.quit()
 
         return Qualification(
             url=url,
@@ -185,5 +187,5 @@ class UnisaScraper(object):
                 credits=creds,
                 purpose=purpose,
             )
-        except ValueError or IndexError:
-            self.issues.append(f"Error with {url}")
+        except (ValueError or IndexError) as e:
+            self.issues.append(f"Error {type(e)} with {url}")
