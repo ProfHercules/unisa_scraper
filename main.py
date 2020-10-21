@@ -50,13 +50,17 @@ def get_modules(q_list: [Qualification]) -> [Module]:
 
 
 def get_mongodb() -> Database:
-    print("Connecting to remote db...")
-    username = "python_unisa_db"
-    password = "q15CPX9mSKW6c3Qk"
-    client = pymongo.MongoClient(
-        f"mongodb+srv://{username}:{password}@unisadb.mctod.mongodb.net/unisaDb?retryWrites=true&w=majority")
-    print("Connected!")
-    return client.unisa_database
+    print("Connecting to local db...")
+    client = pymongo.MongoClient("mongodb://127.0.0.1:27017/?compressors=disabled&gssapiServiceName=mongodb")
+    return client.unisa_database;
+
+    # print("Connecting to remote db...")
+    # username = "python_unisa_db"
+    # password = "q15CPX9mSKW6c3Qk"
+    # client = pymongo.MongoClient(
+    #     f"mongodb+srv://{username}:{password}@unisadb.mctod.mongodb.net/unisaDb?retryWrites=true&w=majority")
+    # print("Connected!")
+    # return client.unisa_database
 
 
 # code
