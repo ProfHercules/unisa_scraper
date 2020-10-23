@@ -51,7 +51,7 @@ def get_modules(q_list: [Qualification]) -> [Module]:
 
 def get_mongodb() -> Database:
     print("Connecting to local db...")
-    client = pymongo.MongoClient("mongodb://127.0.0.1:27017/?compressors=disabled&gssapiServiceName=mongodb")
+    client = pymongo.MongoClient("mongodb://127.0.0.1:27017/?compressors=snappy&gssapiServiceName=mongodb")
     return client.unisa_database;
 
     # print("Connecting to remote db...")
@@ -91,31 +91,33 @@ def backup_data():
         insert_list(module_collection, modules)
 
 
-# backup_data()
-query = ["child", "psy"]
-
-results = {}
-
-for qualification in qualifications:
-    if len(qualification.modules) == 0:
-        continue
-
-    score: int = 0
-    for module in qualification.modules:
-        if all(module.matches(term) for term in query):
-            score += 1
-            print(f"{qualification.code} : {module.url}")
-
-    match: float = float(score) / float(len(qualification.modules))
-    if match > 0.0:
-        results[qualification.url] = (round(match * 100.0, 1), qualification)
-
-
-def good_score(s: int) -> bool:
-    return s > 10
-
-
-for score, q in results.values():
-    print(f"{score}% = {q.name}")
-
-print("Found:", len(results.values()))
+print("Adding data to mongo")
+backup_data()
+print("Done")
+# query = ["child", "psy"]
+#
+# results = {}
+#
+# for qualification in qualifications:
+#     if len(qualification.modules) == 0:
+#         continue
+#
+#     score: int = 0
+#     for module in qualification.modules:
+#         if all(module.matches(term) for term in query):
+#             score += 1
+#             print(f"{qualification.code} : {module.url}")
+#
+#     match: float = float(score) / float(len(qualification.modules))
+#     if match > 0.0:
+#         results[qualification.url] = (round(match * 100.0, 1), qualification)
+#
+#
+# def good_score(s: int) -> bool:
+#     return s > 10
+#
+#
+# for score, q in results.values():
+#     print(f"{score}% = {q.name}")
+#
+# print("Found:", len(results.values()))
