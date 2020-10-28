@@ -33,6 +33,7 @@ def get_qualifications() -> [Qualification]:
             print("Dumping list to pickle file...")
             with open(qualification_pickle_filename, 'wb') as f:
                 pickle.dump(q, f)
+            scraper.dump_module_list()
         except Exception as e:
             print(e)
 
@@ -40,7 +41,6 @@ def get_qualifications() -> [Qualification]:
 
 
 data = get_qualifications()
-print(data)
 
 
 def get_mongodb() -> Database:

@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import pprint
 
+import pickle
 import requests
 from requests import Response
 from bs4 import BeautifulSoup
@@ -9,7 +10,7 @@ from bs4.element import ResultSet, Tag
 from selenium import webdriver
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.common.exceptions import NoSuchElementException
-from typing import Dict
+from typing import Dict, Optional
 
 from threading import Lock
 
@@ -52,13 +53,40 @@ class UnisaScraperV2(object):
         self.heading_list: [str] = []
         self.lock = Lock()
         self.modules: Dict[str, Module] = {}
+        if os.path.isfile("modules.pkl"):
+            with open("modules.pkl", 'rb') as f:
+                self.modules = pickle.load(f)
+
+        self.dump_lock = Lock()
+        self.dump_count = 0
+        self.dump_freq = 256
 
     def get_headings(self):
         return self.heading_list
 
+    def get_cached_module(self, url: str) -> Module:
+        if url in self.modules:
+            result = self.modules[url]
+            return result
+
+    def dump_module_list(self):
+        try:
+            print("Dumping list to pickle file...")
+            with open("modules.pkl", 'wb') as f:
+                pickle.dump(self.modules, f)
+        except Exception as e:
+            print(e)
+
     def add_module(self, module: Module):
         self.lock.acquire()
         self.modules[module.url] = module
+
+        with self.dump_lock:
+            self.dump_count += 1
+            if self.dump_count >= self.dump_freq:
+                self.dump_module_list()
+                self.dump_count = 0
+
         self.lock.release()
 
     # start with root link
@@ -200,19 +228,21 @@ class UnisaScraperV2(object):
 
         heading: str = ""
 
-        links: [str] = []
+        links: [(str, str)] = []
 
         for row in rows:
             tr: Tag = row
             if tr.attrs.get("class") is None:
                 link = tr.find("td").find("a")
                 href = link.get("href")
-                links.append(f"{host}{href}")
+                name = link.text
+                links.append((name, f"{host}{href}"))
             else:
                 group_heading = tr.find("td").text
                 if heading != "":
                     modules = self.__get_modules_from_links(links)
                     results.append(ModuleGroup(heading=heading, modules=modules))
+                    self.heading_list.append(heading)
                     links = []
                 heading = group_heading
 
@@ -220,44 +250,67 @@ class UnisaScraperV2(object):
         results.append(ModuleGroup(heading=heading, modules=modules))
         return results
 
-    def __get_modules_from_links(self, links: [str]) -> [Module]:
+    def __get_modules_from_links(self, links: [(str, str)]) -> [Module]:
         futures = []
 
         modules: [Module] = []
         min_workers = len(links) if len(links) > 0 else 1
         max_workers = min(32, os.cpu_count() + 4, min_workers)
-        print(f"[Module] Starting ThreadPoolExecutor with max_workers={max_workers}")
+        # print(f"[Module] Starting ThreadPoolExecutor with max_workers={max_workers}")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for link in links:
                 future = executor.submit(self.__get_module_data, link)
                 futures.append(future)
 
             for future in as_completed(futures):
-                modules.append(future.result())
+                mod: Module = future.result()
+                if mod is not None:
+                    modules.append(mod)
 
-        print(f"[Module] {max_workers} workers finished")
+        # print(f"[Module] {max_workers} workers finished")
         return modules
 
     # for each module in self dict
-    def __get_module_data(self, module_link: str) -> Module:
-        if module_link in self.modules.keys():
-            return self.modules[module_link]
+    def __get_module_data(self, module_link: (str, str)) -> Optional[Module]:
+        name, url = module_link
+        if (cached := self.get_cached_module(url)) is not None:
+            # print("Returning pre-parsed Module from cache")
+            return cached
         # get basic data
-        response: Response = requests.get(module_link)
+        response: Response = requests.get(url)
+        if response.status_code == 404:
+            module = Module(url=url, name=name)
+            self.issues.append(f"Module {name} does not exist")
+            self.add_module(module)
+            return module
+
         html: BeautifulSoup = BeautifulSoup(response.content, "lxml")
 
         title = html.find("h1").text.rsplit("-", maxsplit=1)
-        name = title[0]
-        code = title[1]
+        name = title[0].strip()
+        code = title[1].strip()
         info_table = html.find("table").find("tbody")
         rows = info_table.find_all("tr")
 
         basic_info = rows.pop(0).find_all("td")
 
-        levels = basic_info[0].text.split(",")
-        duration = basic_info[1].text
-        nqf_lvl = int(basic_info[2].text[-1:])
-        creds = int(basic_info[3].text.split(": ")[1])
+        levels: [str] = []
+        duration: str = "Unspecified"
+        nqf_lvl: int = 0
+        creds: int = 0
+        try:
+            levels_str = basic_info[0].text
+            duration_str = basic_info[1].text.strip()
+            nqf_str = basic_info[2].text[-1:].strip()
+            creds_str = basic_info[3].text.split(": ")[1]
+
+            levels = levels_str.split(",") if levels_str != "" else []
+            duration = duration_str if duration_str != "" else "Unspecified"
+            nqf_lvl = int(nqf_str) if nqf_str != "" else 0
+            creds = int(creds_str) if creds_str != "" else 0
+
+        except ValueError:
+            self.issues.append(f"Error for module {name}")
 
         purpose = ""
         pre_requisite = ""

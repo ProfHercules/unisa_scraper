@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup
 
@@ -8,16 +8,16 @@ from pymongo.collection import ObjectId
 @dataclass
 class Module:
     url: str
-    name: str
-    code: str
-    levels: [str]
-    duration: str
-    nqf_level: int
-    credits: int
-    purpose: str
-    pre_requisite: str
-    co_requisite: str
-    recommendation: str
+    name: str = ""
+    code: str = ""
+    levels: [str] = field(default_factory=list)
+    duration: str = ""
+    nqf_level: int = 0
+    credits: int = 0
+    purpose: str = ""
+    pre_requisite: str = ""
+    co_requisite: str = ""
+    recommendation: str = ""
 
     def to_dict(self) -> dict:
         return {
