@@ -11,6 +11,8 @@ from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.common.exceptions import NoSuchElementException
 from typing import Dict
 
+from threading import Lock
+
 from models import Module, ModuleGroup, ModuleLevel, Qualification
 
 # constants
@@ -48,9 +50,16 @@ class UnisaScraperV2(object):
     def __init__(self):
         self.issues: [str] = []
         self.heading_list: [str] = []
+        self.lock = Lock()
+        self.modules: Dict[str, Module] = {}
 
     def get_headings(self):
         return self.heading_list
+
+    def add_module(self, module: Module):
+        self.lock.acquire()
+        self.modules[module.url] = module
+        self.lock.release()
 
     # start with root link
     # get all qualification links
@@ -77,8 +86,8 @@ class UnisaScraperV2(object):
         q_count = 0
 
         qualifications: [Qualification] = []
-        max_workers = 1  # min(32, os.cpu_count() + 4)
-        print(f"Starting ThreadPoolExecutor with max_workers={max_workers}")
+        max_workers = min(32, os.cpu_count() + 4)
+        print(f"[Qualification] Starting ThreadPoolExecutor with max_workers={max_workers}")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for link in links:
                 future = executor.submit(self.__get_qualification_data, link)
@@ -88,8 +97,6 @@ class UnisaScraperV2(object):
                 q: Qualification = future.result()
                 progress = round(float(q_count) / float(len(links)) * 100.0, 1)
                 print(f"Parsed ({q_count}/{len(links)} ~ {progress}%): {q.code} [Issues: {len(self.issues)}]")
-                pp = pprint.PrettyPrinter(indent=2)
-                pp.pprint(q.to_print())
                 q_count += 1
                 qualifications.append(future.result())
 
@@ -192,28 +199,49 @@ class UnisaScraperV2(object):
         rows.pop(0)
 
         heading: str = ""
-        modules = []
+
+        links: [str] = []
 
         for row in rows:
             tr: Tag = row
             if tr.attrs.get("class") is None:
                 link = tr.find("td").find("a")
                 href = link.get("href")
-                module = self.__get_module_data(f"{host}{href}")
-                modules.append(module)
+                links.append(f"{host}{href}")
             else:
                 group_heading = tr.find("td").text
                 if heading != "":
+                    modules = self.__get_modules_from_links(links)
                     results.append(ModuleGroup(heading=heading, modules=modules))
-                    modules = []
+                    links = []
                 heading = group_heading
 
+        modules = self.__get_modules_from_links(links)
         results.append(ModuleGroup(heading=heading, modules=modules))
         return results
 
+    def __get_modules_from_links(self, links: [str]) -> [Module]:
+        futures = []
+
+        modules: [Module] = []
+        min_workers = len(links) if len(links) > 0 else 1
+        max_workers = min(32, os.cpu_count() + 4, min_workers)
+        print(f"[Module] Starting ThreadPoolExecutor with max_workers={max_workers}")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for link in links:
+                future = executor.submit(self.__get_module_data, link)
+                futures.append(future)
+
+            for future in as_completed(futures):
+                modules.append(future.result())
+
+        print(f"[Module] {max_workers} workers finished")
+        return modules
+
     # for each module in self dict
-    @staticmethod
-    def __get_module_data(module_link: str) -> Module:
+    def __get_module_data(self, module_link: str) -> Module:
+        if module_link in self.modules.keys():
+            return self.modules[module_link]
         # get basic data
         response: Response = requests.get(module_link)
         html: BeautifulSoup = BeautifulSoup(response.content, "lxml")
@@ -248,7 +276,7 @@ class UnisaScraperV2(object):
                 elif "Purpose statement:" in data_point.text:
                     purpose = data_point.text
 
-        return Module(
+        module = Module(
             url=module_link,
             name=name,
             code=code,
@@ -261,3 +289,5 @@ class UnisaScraperV2(object):
             co_requisite=co_requisite,
             recommendation=recommendation,
         )
+        self.add_module(module)
+        return module
