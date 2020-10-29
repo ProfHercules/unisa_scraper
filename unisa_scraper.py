@@ -13,6 +13,8 @@ from threading import Lock
 
 from models import Module, ModuleGroup, ModuleLevel, Qualification
 
+from random import shuffle
+
 # constants
 host = "https://www.unisa.ac.za"
 starting_link = "/sites/corporate/default/Register-to-study-through-Unisa/Undergraduate-&-honours-qualifications/Find-your-qualification-&-choose-your-modules/All-qualifications/"
@@ -46,7 +48,7 @@ class UnisaScraperV2(object):
 
     @staticmethod
     def get_max_threads():
-        return 256  # min(32, os.cpu_count() + 4)
+        return 24  # min(32, os.cpu_count() + 4)
 
     def dump_module_list(self):
         try:
@@ -95,6 +97,7 @@ class UnisaScraperV2(object):
         qualifications: [Qualification] = []
         max_workers = self.get_max_threads()
         print(f"[Qualification] Starting ThreadPoolExecutor with max_workers={max_workers}")
+        shuffle(links)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for link in links:
                 future = executor.submit(self.__get_qualification_data, link)
