@@ -7,9 +7,6 @@ import requests
 from requests import Response
 from bs4 import BeautifulSoup
 from bs4.element import ResultSet, Tag
-from selenium import webdriver
-from selenium.webdriver.chrome.webdriver import WebDriver
-from selenium.common.exceptions import NoSuchElementException
 from typing import Dict, Optional
 
 from threading import Lock
@@ -23,28 +20,6 @@ request_headers = {
     "Accept-Encoding": "gzip, deflate, br",
     "Accept-Language": "en-GB, en-US",
 }
-
-
-class ChromeDriverManager(object):
-    def __init__(self, driver_count: int = 8):
-        self.chrome_options = webdriver.ChromeOptions()
-        self.chrome_options.headless = True
-        self.chrome_options.add_argument("--headless")
-        self.chrome_options.add_argument("--disable-dev-shm-usage")
-        self.chrome_options.add_argument("--no-sandbox")
-        # self.chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN")
-        self.drivers: [WebDriver] = []
-
-        self.issues = []
-
-    def __del__(self):
-        for driver in self.drivers:
-            driver.quit()
-
-    def get_driver(self) -> WebDriver:
-        driver = webdriver.Chrome("./chromedriver", chrome_options=self.chrome_options)
-        self.drivers.append(driver)
-        return driver
 
 
 class UnisaScraperV2(object):
