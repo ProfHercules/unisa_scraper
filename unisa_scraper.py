@@ -242,6 +242,7 @@ class UnisaScraperV2(object):
                 if heading != "":
                     modules = self.__get_modules_from_links(links)
                     results.append(ModuleGroup(heading=heading, modules=modules))
+                    assert len(modules) > 0
                     self.heading_list.append(heading)
                     links = []
                 heading = group_heading
