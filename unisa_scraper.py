@@ -30,10 +30,7 @@ class UnisaScraperV2(object):
         self.heading_list: [str] = []
         self.lock = Lock()
         self.modules: Dict[str, Module] = {}
-        if os.path.isfile("modules.pkl"):
-            with open("modules.pkl", 'rb') as f:
-                self.modules = pickle.load(f)
-
+        self.load_module_list()
         self.dump_lock = Lock()
         self.dump_count = 0
         self.dump_freq = 256
@@ -48,13 +45,33 @@ class UnisaScraperV2(object):
 
     @staticmethod
     def get_max_threads():
-        return 24  # min(32, os.cpu_count() + 4)
+        return min(32, os.cpu_count() + 4)
+
+    def load_module_list(self):
+        if os.path.isfile("modules.pkl"):
+            with open("modules.pkl", 'rb') as f:
+                self.modules = pickle.load(f)
 
     def dump_module_list(self):
         try:
             print("Dumping list to pickle file...")
             with open("modules.pkl", 'wb') as f:
                 pickle.dump(self.modules, f)
+        except Exception as e:
+            print(e)
+
+    @staticmethod
+    def load_qualification_list() -> [Qualification]:
+        if os.path.isfile("qualifications.pkl"):
+            with open("qualifications.pkl", 'rb') as f:
+                return pickle.load(f)
+
+    @staticmethod
+    def dump_qualification_list(lst: [Qualification]):
+        try:
+            print("Dumping list to pickle file...")
+            with open("qualifications.pkl", 'wb') as f:
+                pickle.dump(lst, f)
         except Exception as e:
             print(e)
 
@@ -88,7 +105,14 @@ class UnisaScraperV2(object):
 
         return results
 
+    def get_modules(self) -> [Module]:
+        assert len(self.modules.values()) != 0
+        return self.modules.values()
+
     def get_qualifications(self) -> [Qualification]:
+        if (cached := self.load_qualification_list()) is not None:
+            return cached
+
         links = self.__get_all_qualification_links()
         futures = []
 
@@ -116,6 +140,8 @@ class UnisaScraperV2(object):
                 pp = pprint.PrettyPrinter(indent=4)
                 pp.pprint(self.issues)
 
+        self.dump_qualification_list(qualifications)
+        self.dump_module_list()
         return qualifications
 
     # for each
