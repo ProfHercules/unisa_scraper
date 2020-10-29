@@ -44,6 +44,10 @@ class UnisaScraperV2(object):
             result = self.modules[url]
             return result
 
+    @staticmethod
+    def get_max_threads():
+        return 256  # min(32, os.cpu_count() + 4)
+
     def dump_module_list(self):
         try:
             print("Dumping list to pickle file...")
@@ -89,7 +93,7 @@ class UnisaScraperV2(object):
         q_count = 0
 
         qualifications: [Qualification] = []
-        max_workers = min(32, os.cpu_count() + 4)
+        max_workers = self.get_max_threads()
         print(f"[Qualification] Starting ThreadPoolExecutor with max_workers={max_workers}")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for link in links:
@@ -231,7 +235,7 @@ class UnisaScraperV2(object):
 
         modules: [Module] = []
         min_workers = len(links) if len(links) > 0 else 1
-        max_workers = min(32, os.cpu_count() + 4, min_workers)
+        max_workers = min(self.get_max_threads(), min_workers)
         # print(f"[Module] Starting ThreadPoolExecutor with max_workers={max_workers}")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for link in links:
