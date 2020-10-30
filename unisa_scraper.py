@@ -54,7 +54,7 @@ class UnisaScraperV2(object):
 
     def dump_module_list(self):
         try:
-            print("Dumping list to pickle file...")
+            print("Dumping Module list to pickle file...")
             with open("modules.pkl", 'wb') as f:
                 pickle.dump(self.modules, f)
         except Exception as e:
@@ -69,13 +69,16 @@ class UnisaScraperV2(object):
     @staticmethod
     def dump_qualification_list(lst: [Qualification]):
         try:
-            print("Dumping list to pickle file...")
+            print("Dumping Qualification list to pickle file...")
             with open("qualifications.pkl", 'wb') as f:
                 pickle.dump(lst, f)
         except Exception as e:
             print(e)
 
     def add_module(self, module: Module):
+        if self.get_cached_module(module.url) is not None:
+            return
+
         self.lock.acquire()
         self.modules[module.url] = module
 
@@ -119,7 +122,7 @@ class UnisaScraperV2(object):
         q_count = 0
 
         qualifications: [Qualification] = []
-        max_workers = self.get_max_threads()
+        max_workers = 4  # self.get_max_threads()
         print(f"[Qualification] Starting ThreadPoolExecutor with max_workers={max_workers}")
         shuffle(links)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -171,23 +174,23 @@ class UnisaScraperV2(object):
                 data: [Tag] = info_row.find_all("td")
 
                 if data[0].text == "Qualification stream:":
-                    stream = data[1].text
+                    stream = data[1].text.strip()
                 elif data[0].text == "Qualification code:":
-                    code = data[1].text
+                    code = data[1].text.strip()
                 elif data[0].text == "NQF level:":
-                    nqf_lvl = int(data[1].text)
+                    nqf_lvl = int(data[1].text.strip())
                 elif data[0].text == "Total credits:":
-                    total_credits = int(data[1].text)
+                    total_credits = int(data[1].text.strip())
                 elif data[0].text == "SAQA ID:":
-                    saqa_id = data[1].text
+                    saqa_id = data[1].text.strip()
                 elif data[0].text == "APS/AS:":
-                    aps_as = int(data[1].text)
+                    aps_as = int(data[1].text.strip())
                 elif "Purpose statement:" in data[0].text:
-                    purpose = data[0].text
+                    purpose = data[0].text.strip()
                 elif "Rules:" in data[0].text:
-                    rules = data[0].text
+                    rules = data[0].text.strip()
 
-            name = name.replace(code, "")
+            name = name.replace(f"({code})", "").strip()
 
             # build module link list
             mod_levels: [ModuleLevel] = self.__get_module_levels_from(html)
@@ -265,9 +268,11 @@ class UnisaScraperV2(object):
         modules: [Module] = []
         min_workers = len(links) if len(links) > 0 else 1
         max_workers = min(self.get_max_threads(), min_workers)
-        # print(f"[Module] Starting ThreadPoolExecutor with max_workers={max_workers}")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for link in links:
+                if (cached := self.get_cached_module(link)) is not None:
+                    modules.append(cached)
+                    continue
                 future = executor.submit(self.__get_module_data, link)
                 futures.append(future)
 
@@ -276,7 +281,7 @@ class UnisaScraperV2(object):
                 if mod is not None:
                     modules.append(mod)
 
-        # print(f"[Module] {max_workers} workers finished")
+        print(f"[Module] Collected {len(modules)} modules.")
         return modules
 
     # for each module in self dict
@@ -339,7 +344,7 @@ class UnisaScraperV2(object):
                     purpose = data_point.text
 
         module = Module(
-            url=module_link,
+            url=url,
             name=name,
             code=code,
             levels=levels,
