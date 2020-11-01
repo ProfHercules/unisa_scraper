@@ -79,14 +79,18 @@ class Qualification:
     rules: str
     module_levels: [ModuleLevel]
 
-    def to_print(self) -> dict:
-        modules = 0
-        groups = 0
+    def get_num_modules_and_groups(self) -> (int, int):
+        modules: int = 0
+        groups: int = 0
         for level in self.module_levels:
             groups += len(level.module_groups)
             for group in level.module_groups:
                 modules += len(group.modules)
 
+        return modules, groups
+
+    def to_print(self) -> dict:
+        modules, groups = self.get_num_modules_and_groups()
         return {
             "name": self.name,
             "stream": self.stream,
@@ -103,6 +107,7 @@ class Qualification:
         }
 
     def to_dict(self) -> dict:
+        modules = self.get_num_modules_and_groups()[0]
         module_levels = list(map(ModuleLevel.to_dict, self.module_levels))
         return {
             "url": self.url,
@@ -116,4 +121,5 @@ class Qualification:
             "purpose": self.purpose,
             "rules": self.rules,
             "module_levels": module_levels,
+            "num_modules": modules,
         }

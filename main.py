@@ -22,6 +22,13 @@ def scrape_data() -> ([Qualification], [Module]):
     q = scraper.get_qualifications()
     end = time.time()
     print("Duration:", end - start, "sec")
+
+    headings = UnisaScraperV2.get_headings(q)
+    open('headings.txt', 'w').close()
+    with open("headings.txt", "a") as file_object:
+        print(len(headings))
+        for heading in headings:
+            file_object.write(f"{heading}\n")
     return q
 
 

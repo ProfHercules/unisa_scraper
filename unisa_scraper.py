@@ -1,13 +1,20 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 import os
 import pprint
+import time
 
 import pickle
+import hashlib
+from urllib.parse import urlparse
 import requests
 from requests import Response
 from bs4 import BeautifulSoup
 from bs4.element import ResultSet, Tag
-from typing import Dict, Optional
+from typing import Dict, Optional, Union, Set
+import re
+from os import listdir
+from os.path import isfile, join
 
 from threading import Lock
 
@@ -24,19 +31,86 @@ request_headers = {
 }
 
 
+class CachedRequester(object):
+    def __init__(self):
+        self.cache: Dict[str, Response] = {}
+        self.lock = Lock()
+        self.load_cache()
+        self.cache_update_count = 0
+        self.cache_dump_at_updates = 64
+        self.queue: [str] = []
+
+    def __del__(self):
+        self.dump_cache()
+
+    def dump_cache(self):
+        if self.lock.locked():
+            print(f"Dumping cache with {len(self.cache)} items")
+            with open("response_cache.pkl", "wb") as f:
+                pickle.dump(self.cache, f)
+        else:
+            with self.lock:
+                self.dump_cache()
+
+    def load_cache(self):
+        with self.lock:
+            if os.path.isfile("response_cache.pkl"):
+                with open("response_cache.pkl", "rb") as f:
+                    self.cache = pickle.load(f)
+                print(f"Loaded {len(self.cache)} cache items from file-system")
+
+    def cached_request(self, url: str) -> Response:
+        # trivial, url is cached so return data
+        if url in self.cache:
+            return self.cache[url]
+        # url is not in cache
+        else:
+            print("Cache miss")
+            if url in self.queue:
+                while url not in self.cache:
+                    print(f"[{threading.get_ident()}] Waiting for {url[-5:]}")
+                    time.sleep(1)
+                self.queue = list(filter(lambda a: a != url, self.queue))
+                return self.cache[url]
+            # manually do request and cache
+            self.queue.append(url)
+            resp: Response = requests.get(url, headers=request_headers)
+            self.queue.remove(url)
+            self.cache[url] = resp
+            with self.lock:
+                self.cache_update_count += 1
+                if self.cache_update_count >= self.cache_dump_at_updates:
+                    self.dump_cache()
+                    self.cache_update_count = 0
+            return resp
+
+
 class UnisaScraperV2(object):
     def __init__(self):
         self.issues: [str] = []
-        self.heading_list: [str] = []
         self.lock = Lock()
         self.modules: Dict[str, Module] = {}
-        self.load_module_list()
-        self.dump_lock = Lock()
-        self.dump_count = 0
-        self.dump_freq = 256
+        self.cached_requester = CachedRequester()
 
-    def get_headings(self):
-        return self.heading_list
+    @staticmethod
+    def get_headings(qualifications: [Qualification]) -> [str]:
+        headings: [str] = []
+        for qualification in qualifications:
+            lvl_count = 0
+            for lvl in qualification.module_levels:
+                lvl_count += 1
+                grp_cnt = 0
+                for group in lvl.module_groups:
+                    grp_cnt += 1
+                    if group.heading.strip() == ".":
+                        print(lvl_count, grp_cnt)
+                    headings.append(group.heading)
+        return headings
+
+    def cache_module(self, module: Module):
+        if self.get_cached_module(module.url) is None:
+            with self.lock:
+                self.modules[module.url] = module
 
     def get_cached_module(self, url: str) -> Module:
         if url in self.modules:
@@ -47,55 +121,9 @@ class UnisaScraperV2(object):
     def get_max_threads():
         return min(32, os.cpu_count() + 4)
 
-    def load_module_list(self):
-        if os.path.isfile("modules.pkl"):
-            with open("modules.pkl", 'rb') as f:
-                self.modules = pickle.load(f)
-
-    def dump_module_list(self):
-        try:
-            print("Dumping Module list to pickle file...")
-            with open("modules.pkl", 'wb') as f:
-                pickle.dump(self.modules, f)
-        except Exception as e:
-            print(e)
-
-    @staticmethod
-    def load_qualification_list() -> [Qualification]:
-        if os.path.isfile("qualifications.pkl"):
-            with open("qualifications.pkl", 'rb') as f:
-                return pickle.load(f)
-
-    @staticmethod
-    def dump_qualification_list(lst: [Qualification]):
-        try:
-            print("Dumping Qualification list to pickle file...")
-            with open("qualifications.pkl", 'wb') as f:
-                pickle.dump(lst, f)
-        except Exception as e:
-            print(e)
-
-    def add_module(self, module: Module):
-        if self.get_cached_module(module.url) is not None:
-            return
-
-        self.lock.acquire()
-        self.modules[module.url] = module
-
-        with self.dump_lock:
-            self.dump_count += 1
-            if self.dump_count >= self.dump_freq:
-                self.dump_module_list()
-                self.dump_count = 0
-
-        self.lock.release()
-
-    # start with root link
-    # get all qualification links
-    @staticmethod
-    def __get_all_qualification_links() -> [str]:
+    def __get_all_qualification_links(self) -> [str]:
         results: [str] = []
-        raw_list_page = requests.get(f"{host}{starting_link}")
+        raw_list_page = self.cached_requester.cached_request(f"{host}{starting_link}")
         parsed_list_html = BeautifulSoup(raw_list_page.content, 'html.parser')
 
         all_links: ResultSet = parsed_list_html.find_all('a')
@@ -113,16 +141,13 @@ class UnisaScraperV2(object):
         return self.modules.values()
 
     def get_qualifications(self) -> [Qualification]:
-        if (cached := self.load_qualification_list()) is not None:
-            return cached
-
         links = self.__get_all_qualification_links()
         futures = []
 
         q_count = 0
 
         qualifications: [Qualification] = []
-        max_workers = 4  # self.get_max_threads()
+        max_workers = self.get_max_threads()
         print(f"[Qualification] Starting ThreadPoolExecutor with max_workers={max_workers}")
         shuffle(links)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -143,15 +168,13 @@ class UnisaScraperV2(object):
                 pp = pprint.PrettyPrinter(indent=4)
                 pp.pprint(self.issues)
 
-        self.dump_qualification_list(qualifications)
-        self.dump_module_list()
         return qualifications
 
     # for each
     def __get_qualification_data(self, qualification_link: str) -> Qualification:
-        # get basic data
-        response: Response = requests.get(qualification_link, headers=request_headers)
-        html: BeautifulSoup = BeautifulSoup(response.content, "lxml")
+        response: Response = self.cached_requester.cached_request(qualification_link)
+
+        html: BeautifulSoup = BeautifulSoup(response.content, "html.parser")
 
         try:
             url: str = qualification_link
@@ -175,10 +198,11 @@ class UnisaScraperV2(object):
 
                 if data[0].text == "Qualification stream:":
                     stream = data[1].text.strip()
+                    stream = re.sub(r"^\((?P<srm>.*)\)$", "\g<srm>", stream)
                 elif data[0].text == "Qualification code:":
                     code = data[1].text.strip()
                 elif data[0].text == "NQF level:":
-                    nqf_lvl = int(data[1].text.strip())
+                    nqf_level = int(data[1].text.strip())
                 elif data[0].text == "Total credits:":
                     total_credits = int(data[1].text.strip())
                 elif data[0].text == "SAQA ID:":
@@ -186,11 +210,13 @@ class UnisaScraperV2(object):
                 elif data[0].text == "APS/AS:":
                     aps_as = int(data[1].text.strip())
                 elif "Purpose statement:" in data[0].text:
-                    purpose = data[0].text.strip()
+                    purpose = data[0].text.replace("Purpose statement:", "", 1).strip()
                 elif "Rules:" in data[0].text:
-                    rules = data[0].text.strip()
+                    rules = data[0].text.replace("Rules:", "", 1).strip()
 
             name = name.replace(f"({code})", "").strip()
+            if name.count(stream) > 1:
+                name = name.replace(stream, "", 1).replace("()", "").strip()
 
             # build module link list
             mod_levels: [ModuleLevel] = self.__get_module_levels_from(html)
@@ -225,6 +251,71 @@ class UnisaScraperV2(object):
 
         return results
 
+    @staticmethod
+    def normalize_heading(heading: str) -> str:
+        result: str = heading.strip()
+        # "(?i)(compulsory+\.?)", "Compulsory"
+        result = re.sub(r"compulsory?\.?", "Compulsory", result, flags=re.IGNORECASE)
+        # "(?i)one", "1"
+        result = re.sub(r"one", "1", result, flags=re.IGNORECASE)
+        # "(?i)two", "2"
+        result = re.sub(r"two", "2", result, flags=re.IGNORECASE)
+        # "(?i)three", "3"
+        result = re.sub(r"three", "3", result, flags=re.IGNORECASE)
+        # "(?i)four", "4"
+        result = re.sub(r"four", "4", result, flags=re.IGNORECASE)
+        # "(?i)five", "5"
+        result = re.sub(r"five", "5", result, flags=re.IGNORECASE)
+        # "(?i)six", "6"
+        result = re.sub(r"six", "6", result, flags=re.IGNORECASE)
+        # "(?i)seven", "7"
+        result = re.sub(r"seven", "7", result, flags=re.IGNORECASE)
+        # "(?i)eight", "8"
+        result = re.sub(r"eight", "8", result, flags=re.IGNORECASE)
+        # "(?i)nine", "9"
+        result = re.sub(r"nine", "9", result, flags=re.IGNORECASE)
+        # "(?i)Select", "Choose"
+        result = re.sub(r"select", "Choose", result, flags=re.IGNORECASE)
+        # "^\.", "Compulsory "
+        result = re.sub(r"^\.", "Compulsory", result, flags=re.IGNORECASE)
+        # "[\.:;]$", ""
+        result = re.sub(r"[\.:;]$", "", result, flags=re.IGNORECASE)
+        # "Group ([A-Z])$", "Group $1."
+        result = re.sub(r"Group (?P<grp>[A-Z])$", "Group \g<grp>", result, flags=re.IGNORECASE)
+        # "from the list below", "from the following"
+        result = result.replace("from the list below", "from the following")
+        # "( ", "("
+        result = result.replace("( ", "(")
+        # " )", ")"
+        result = result.replace(" )", ")")
+        # "the following module$", "the following modules"
+        result = re.sub(r"the following module$", "the following modules", result, flags=re.IGNORECASE)
+        # "Choose any", "Choose"
+        result = result.replace("Choose any", "Choose")
+        # "Group ([A-Z]):", "Group $1."
+        result = re.sub(r"Group (?P<grp>[A-Z]):", "Group \g<grp>.", result, flags=re.IGNORECASE)
+        # "Choose ([0-9]) of the following", "Choose $1 from the following"
+        result = re.sub(r"Choose (?P<num>[0-9]) of the following", "Choose \g<num> from the following", result, flags=re.IGNORECASE)
+        # "Choose ([0-9]) modules? from the following", "Choose $1 from the following"
+        result = re.sub(r"Choose (?P<num>[0-9]) modules? from the following", "Choose \g<num> from the following", result, flags=re.IGNORECASE)
+        # "Choose ([0-9]) from the following modules", "Choose $1 from the following"
+        result = re.sub(r"Choose (?P<num>[0-9]) from the following modules", "Choose \g<num> from the following", result, flags=re.IGNORECASE)
+        # "Choose ([0-9]) from the following (groups of modules|subjects)", "Choose $1 from the following"
+        result = re.sub(r"Choose (?P<num>[0-9]) from the following (groups of modules|subjects)", "Choose \g<num> from the following", result, flags=re.IGNORECASE)
+        # "Group ([A-Z]). Compulsory Choose ALL modules (from|under) this group$", "Group $1. Compulsory"
+        result = re.sub(r"Group (?P<grp>[A-Z])\. Compulsory Choose ALL modules (from|under) this group$", "Group \g<grp>. Compulsory", result, flags=re.IGNORECASE)
+        # "(?i)Compulsory Modules$", "Compulsory"
+        result = re.sub(r"Compulsory Modules$", "Compulsory", result, flags=re.IGNORECASE)
+        # "(i?)Compulsory modules to major in ([A-z ]*)$", "Compulsory for $2 major"
+        result = re.sub(r"Compulsory modules to major in (?P<mjr>[A-z ]*)$", "Compulsory for \g<mjr> major", result, flags=re.IGNORECASE)
+        # "(?i)chooseed", "chosen"
+        result = re.sub(r"choose+d", "chosen", result, flags=re.IGNORECASE)
+        # "(\.+)", "."
+        result = re.sub(r"(\.+)", ".", result, flags=re.IGNORECASE)
+        # "^([A-Z])\.", "Group $1."
+        result = re.sub(r"^(?P<grp>[A-Z])\.", "Group \g<grp>.", result, flags=re.IGNORECASE)
+        return result
+
     def __get_module_groups_from(self, table: Tag) -> [ModuleGroup]:
         results: [ModuleGroup] = []
         tbody = table.find("tbody")
@@ -249,12 +340,11 @@ class UnisaScraperV2(object):
                 name = link.text
                 links.append((name, f"{host}{href}"))
             else:
-                group_heading = tr.find("td").text
+                group_heading = self.normalize_heading(tr.find("td").text)
                 if heading != "":
                     modules = self.__get_modules_from_links(links)
                     results.append(ModuleGroup(heading=heading, modules=modules))
                     assert len(modules) > 0
-                    self.heading_list.append(heading)
                     links = []
                 heading = group_heading
 
@@ -281,24 +371,20 @@ class UnisaScraperV2(object):
                 if mod is not None:
                     modules.append(mod)
 
-        print(f"[Module] Collected {len(modules)} modules.")
+        # print(f"[Module] Collected {len(modules)} modules.")
         return modules
 
     # for each module in self dict
     def __get_module_data(self, module_link: (str, str)) -> Optional[Module]:
         name, url = module_link
-        if (cached := self.get_cached_module(url)) is not None:
-            # print("Returning pre-parsed Module from cache")
-            return cached
-        # get basic data
-        response: Response = requests.get(url)
+        response: Response = self.cached_requester.cached_request(url)
         if response.status_code == 404:
             module = Module(url=url, name=name)
             self.issues.append(f"Module {name} does not exist")
-            self.add_module(module)
+            self.cache_module(module)
             return module
 
-        html: BeautifulSoup = BeautifulSoup(response.content, "lxml")
+        html: BeautifulSoup = BeautifulSoup(response.content, "html.parser")
 
         title = html.find("h1").text.rsplit("-", maxsplit=1)
         name = title[0].strip()
@@ -340,7 +426,7 @@ class UnisaScraperV2(object):
                     co_requisite = data_point.text
                 elif "Recommendation:" in data_point.text:
                     recommendation = data_point.text
-                elif "Purpose statement:" in data_point.text:
+                elif "Purpose:" in data_point.text:
                     purpose = data_point.text
 
         module = Module(
@@ -356,5 +442,5 @@ class UnisaScraperV2(object):
             co_requisite=co_requisite,
             recommendation=recommendation,
         )
-        self.add_module(module)
+        self.cache_module(module)
         return module
