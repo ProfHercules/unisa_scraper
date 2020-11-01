@@ -16,6 +16,8 @@ import re
 from os import listdir
 from os.path import isfile, join
 
+import copy
+
 from threading import Lock
 
 from models import Module, ModuleGroup, ModuleLevel, Qualification
@@ -47,7 +49,8 @@ class CachedRequester(object):
         if self.lock.locked():
             print(f"Dumping cache with {len(self.cache)} items")
             with open("response_cache.pkl", "wb") as f:
-                pickle.dump(self.cache, f)
+                to_dump = copy.deepcopy(self.cache)
+                pickle.dump(to_dump, f)
         else:
             with self.lock:
                 self.dump_cache()
