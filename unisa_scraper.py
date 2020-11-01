@@ -42,9 +42,6 @@ class CachedRequester(object):
         self.cache_dump_at_updates = 64
         self.queue: [str] = []
 
-    def __del__(self):
-        self.dump_cache()
-
     def dump_cache(self):
         if self.lock.locked():
             print(f"Dumping cache with {len(self.cache)} items")
@@ -171,6 +168,7 @@ class UnisaScraperV2(object):
                 pp = pprint.PrettyPrinter(indent=4)
                 pp.pprint(self.issues)
 
+        self.cached_requester.dump_cache()
         return qualifications
 
     # for each
