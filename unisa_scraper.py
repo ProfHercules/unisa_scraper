@@ -76,8 +76,8 @@ class CachedRequester(object):
             self.queue.append(url)
             resp: Response = requests.get(url, headers=request_headers)
             self.queue.remove(url)
-            self.cache[url] = resp
             with self.lock:
+                self.cache[url] = resp
                 self.cache_update_count += 1
                 if self.cache_update_count >= self.cache_dump_at_updates:
                     self.dump_cache()

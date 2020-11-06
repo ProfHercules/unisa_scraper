@@ -15,13 +15,28 @@ from unisa_scraper import UnisaScraperV2
 from models import Qualification, Module
 
 
-def scrape_data() -> ([Qualification], [Module]):
+def debug_dump(qs: [Qualification]):
+    with open("debug.pkl", "wb") as f:
+        pickle.dump(qs, f)
+
+
+def debug_load() -> [Qualification]:
+    if os.path.isfile("debug.pkl"):
+        with open("debug.pkl", "rb") as f:
+            return pickle.load(f)
+
+
+def scrape_data() -> [Qualification]:
     print("Scraping Unisa website ...")
-    scraper = UnisaScraperV2()
-    start = time.time()
-    q = scraper.get_qualifications()
-    end = time.time()
-    print("Duration:", end - start, "sec")
+    if (cached := debug_load()) is not None:
+        q = cached
+    else:
+        scraper = UnisaScraperV2()
+        start = time.time()
+        q = scraper.get_qualifications()
+        end = time.time()
+        debug_dump(q)
+        print("Duration:", end - start, "sec")
 
     headings = UnisaScraperV2.get_headings(q)
     open('headings.txt', 'w').close()
@@ -53,25 +68,32 @@ def backup_data():
     # set references
     qualification_collection: Collection = db.qualifications
 
-    # clear existing data
-    qualification_collection.drop()
+    # # clear existing data
+    # qualification_collection.drop()
 
     # create index
     qualification_collection.drop_indexes()
     qualification_collection.create_index([('url', pymongo.ASCENDING)], unique=True)
-    qualification_collection.create_index([('code', pymongo.ASCENDING)], unique=True)
-    qualification_collection.create_index([('module_levels.module_groups.modules.url', pymongo.ASCENDING)])
+    qualification_collection.create_index([('code', pymongo.ASCENDING), ('name', pymongo.ASCENDING)], unique=True)
     qualification_collection.create_index([("$**", pymongo.TEXT)])
 
-    docs = map(Qualification.to_dict, qualifications)
-    qualification_collection.insert_many(docs)
+    print("Documents before:", qualification_collection.count_documents({}))
+
+    for qualification in qualifications:
+        doc = qualification.to_dict()
+        before = qualification_collection.find_one_and_replace({"url": qualification.url}, doc, upsert=True)
+        after = qualification_collection.find_one({"url": qualification.url})
+        # before is none if the doc didn't exist (hence upsert)
+        assert before is None or (before["_id"] == after["_id"])
+
+    print("Documents after :", qualification_collection.count_documents({}))
 
 
 def find_q_with_module_code(code: str) -> [Qualification]:
     qualification_collection: Collection = db.qualifications
     s = time.time()
-    # cursor: Cursor = qualification_collection.find({"module_levels.module_groups.modules.code": code})
-    cursor: Cursor = qualification_collection.find()
+    cursor: Cursor = qualification_collection.find({"module_levels.module_groups.modules.code": code})
+    # cursor: Cursor = qualification_collection.find()
     e = time.time()
     results: [Qualification] = []
     for doc in cursor:
