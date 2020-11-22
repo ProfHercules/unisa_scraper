@@ -26,7 +26,11 @@ from random import shuffle
 
 # constants
 host = "https://www.unisa.ac.za"
-starting_link = "/sites/corporate/default/Register-to-study-through-Unisa/Undergraduate-&-honours-qualifications/Find-your-qualification-&-choose-your-modules/All-qualifications/"
+starting_links = [
+    "/sites/corporate/default/Register-to-study-through-Unisa/Undergraduate-&-honours-qualifications/Find-your-qualification-&-choose-your-modules/All-qualifications",
+    "/sites/corporate/default/Register-to-study-through-Unisa/Master%27s-&-doctoral-degrees/Qualifications/All-qualifications",
+]
+
 request_headers = {
     "Accept-Encoding": "gzip, deflate, br",
     "Accept-Language": "en-GB, en-US",
@@ -119,20 +123,23 @@ class UnisaScraperV2(object):
 
     @staticmethod
     def get_max_threads():
-        return min(32, os.cpu_count() + 4)
+        return 1  # min(32, os.cpu_count() + 4)
 
     def __get_all_qualification_links(self) -> [str]:
         results: [str] = []
-        raw_list_page = self.cached_requester.cached_request(f"{host}{starting_link}")
-        parsed_list_html = BeautifulSoup(raw_list_page.content, 'html.parser')
+        for link in starting_links:
+            starting_link = f"{host}{link}"
+            raw_list_page = self.cached_requester.cached_request(starting_link)
+            parsed_list_html = BeautifulSoup(raw_list_page.content, 'html.parser')
 
-        all_links: ResultSet = parsed_list_html.find_all('a')
+            all_links: ResultSet = parsed_list_html.find_all('a')
+            print(len(all_links))
 
-        for q_link in all_links:
-            href: str = q_link.get("href")
-            if href is not None and href.startswith(starting_link):
-                results.append(f"{host}{href}")
-        print(f"Extracted {len(results)} links")
+            for q_link in all_links:
+                href: str = q_link.get("href")
+                if href is not None and href.startswith(link):
+                    results.append(f"{host}{href}")
+            print(f"Extracted {len(results)} links")
 
         return results
 
@@ -157,6 +164,9 @@ class UnisaScraperV2(object):
 
             for future in as_completed(futures):
                 q: Qualification = future.result()
+                if q is None:
+                    self.issues.append("Skipping NoneType qualification")
+                    continue
                 progress = round(float(q_count) / float(len(links)) * 100.0, 1)
                 print(f"Parsed ({q_count}/{len(links)} ~ {progress}%): {q.code} [Issues: {len(self.issues)}]")
                 q_count += 1
@@ -220,7 +230,10 @@ class UnisaScraperV2(object):
                 name = name.replace(stream, "", 1).replace("()", "").strip()
 
             # build module link list
-            mod_levels: [ModuleLevel] = self.__get_module_levels_from(html)
+            try:
+                mod_levels: [ModuleLevel] = self.__get_module_levels_from(html)
+            except:
+                print("Error in mod levels")
             # add module links to self dict
             # add ref to qualification, for future reference
 
@@ -247,7 +260,10 @@ class UnisaScraperV2(object):
         tables = page.find_all(class_="table-responsive")
 
         for table in tables:
-            groups = self.__get_module_groups_from(table)
+            try:
+                groups = self.__get_module_groups_from(table)
+            except:
+                print("Error in groups")
             results.append(ModuleLevel(module_groups=groups))
 
         return results
@@ -341,7 +357,10 @@ class UnisaScraperV2(object):
                 name = link.text
                 links.append((name, f"{host}{href}"))
             else:
-                group_heading = self.normalize_heading(tr.find("td").text)
+                try:
+                    group_heading = self.normalize_heading(tr.find("td").text)
+                except:
+                    print("Error here")
                 if heading != "":
                     modules = self.__get_modules_from_links(links)
                     results.append(ModuleGroup(heading=heading, modules=modules))
@@ -349,7 +368,10 @@ class UnisaScraperV2(object):
                     links = []
                 heading = group_heading
 
-        modules = self.__get_modules_from_links(links)
+        try:
+            modules = self.__get_modules_from_links(links)
+        except:
+            print("Error here")
         results.append(ModuleGroup(heading=heading, modules=modules))
         return results
 
