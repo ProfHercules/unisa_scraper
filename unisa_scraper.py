@@ -123,7 +123,7 @@ class UnisaScraperV2(object):
 
     @staticmethod
     def get_max_threads():
-        return 1  # min(32, os.cpu_count() + 4)
+        return min(32, os.cpu_count() + 4)
 
     def __get_all_qualification_links(self) -> [str]:
         results: [str] = []
